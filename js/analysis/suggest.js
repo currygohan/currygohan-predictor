@@ -9,6 +9,11 @@ import { computeFrequencyCounts } from "./frequency.js";
 import { mergeScores, pickTwoTicketsFromScores, scaleScores } from "./mixer.js";
 import { computeSpectralScores } from "./spectral.js";
 import {
+  computeWeekdayScores,
+  DOW_SHORT,
+  nextScheduledDrawDayOfWeek,
+} from "./weekday.js";
+import {
   buildTransitionMatrices,
   transitionScoresForNextDraw,
   zeroScoreMaps,
@@ -43,13 +48,15 @@ export function suggestSets(game, historyRows) {
   const coCfg = DEFAULT_ANALYSIS_WEIGHTS.cooccurrence;
   const specCfg = DEFAULT_ANALYSIS_WEIGHTS.spectral;
   const compCfg = DEFAULT_ANALYSIS_WEIGHTS.compressibility;
+  const wdCfg = DEFAULT_ANALYSIS_WEIGHTS.weekday;
 
   const freqOn = freqCfg.enabled && freqCfg.weight > 0;
   const transOn = transCfg.enabled && transCfg.weight > 0;
   const coOn = coCfg.enabled && coCfg.weight > 0;
   const specOn = specCfg.enabled && specCfg.weight > 0;
   const compOn = compCfg.enabled && compCfg.weight > 0;
-  if (!freqOn && !transOn && !coOn && !specOn && !compOn) return null;
+  const wdOn = wdCfg.enabled && wdCfg.weight > 0;
+  if (!freqOn && !transOn && !coOn && !specOn && !compOn && !wdOn) return null;
 
   let combined = zeroScoreMaps(game);
   const captionParts = [];
@@ -109,6 +116,17 @@ export function suggestSets(game, historyRows) {
     const kw = compCfg.weight === 1 ? "×1" : `×${compCfg.weight}`;
     captionParts.push(
       `${compCfg.label} (${kw}; last-256-draw entropy + Markov-1 on hit indicators)`,
+    );
+  }
+
+  if (wdOn) {
+    const targetDow = nextScheduledDrawDayOfWeek(game);
+    const rawWd = computeWeekdayScores(game, historyRows, targetDow);
+    const scaled = scaleScores(rawWd, wdCfg.weight);
+    combined = mergeScores(combined, scaled, game);
+    const ww = wdCfg.weight === 1 ? "×1" : `×${wdCfg.weight}`;
+    captionParts.push(
+      `${wdCfg.label} (${ww}; rates on ${DOW_SHORT[targetDow]} draws only — next scheduled draw weekday, local calendar; not causal)`,
     );
   }
 
