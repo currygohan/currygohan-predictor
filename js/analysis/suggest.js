@@ -1,11 +1,13 @@
 import { DEFAULT_ANALYSIS_WEIGHTS } from "./config.js";
 import { GAME_RULES } from "./constants.js";
+import { computeCompressibilityScores } from "./compressibility.js";
 import {
   buildCooccurrenceMatrices,
   cooccurrenceScoresForContext,
 } from "./cooccurrence.js";
 import { computeFrequencyCounts } from "./frequency.js";
 import { mergeScores, pickTwoTicketsFromScores, scaleScores } from "./mixer.js";
+import { computeSpectralScores } from "./spectral.js";
 import {
   buildTransitionMatrices,
   transitionScoresForNextDraw,
@@ -39,17 +41,21 @@ export function suggestSets(game, historyRows) {
   const freqCfg = DEFAULT_ANALYSIS_WEIGHTS.frequency;
   const transCfg = DEFAULT_ANALYSIS_WEIGHTS.transition;
   const coCfg = DEFAULT_ANALYSIS_WEIGHTS.cooccurrence;
+  const specCfg = DEFAULT_ANALYSIS_WEIGHTS.spectral;
+  const compCfg = DEFAULT_ANALYSIS_WEIGHTS.compressibility;
 
   const freqOn = freqCfg.enabled && freqCfg.weight > 0;
   const transOn = transCfg.enabled && transCfg.weight > 0;
   const coOn = coCfg.enabled && coCfg.weight > 0;
-  if (!freqOn && !transOn && !coOn) return null;
+  const specOn = specCfg.enabled && specCfg.weight > 0;
+  const compOn = compCfg.enabled && compCfg.weight > 0;
+  if (!freqOn && !transOn && !coOn && !specOn && !compOn) return null;
 
   let combined = zeroScoreMaps(game);
   const captionParts = [];
 
   const ordered =
-    transOn || coOn ? sortChronological(historyRows) : null;
+    transOn || coOn || compOn ? sortChronological(historyRows) : null;
   const last = ordered?.length ? ordered[ordered.length - 1] : null;
 
   if (freqOn) {
@@ -83,6 +89,26 @@ export function suggestSets(game, historyRows) {
     const cw = coCfg.weight === 1 ? "×1" : `×${coCfg.weight}`;
     captionParts.push(
       `${coCfg.label} (${cw}; white–white pairs + white–bonus with latest draw ${last.draw_date})`,
+    );
+  }
+
+  if (specOn) {
+    const rawSpec = computeSpectralScores(game, historyRows);
+    const scaled = scaleScores(rawSpec, specCfg.weight);
+    combined = mergeScores(combined, scaled, game);
+    const sw = specCfg.weight === 1 ? "×1" : `×${specCfg.weight}`;
+    captionParts.push(
+      `${specCfg.label} (${sw}; 2nd mode on white graph, Perron on bonus coupling)`,
+    );
+  }
+
+  if (compOn && ordered?.length) {
+    const rawComp = computeCompressibilityScores(ordered, rules);
+    const scaled = scaleScores(rawComp, compCfg.weight);
+    combined = mergeScores(combined, scaled, game);
+    const kw = compCfg.weight === 1 ? "×1" : `×${compCfg.weight}`;
+    captionParts.push(
+      `${compCfg.label} (${kw}; last-256-draw entropy + Markov-1 on hit indicators)`,
     );
   }
 

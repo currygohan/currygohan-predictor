@@ -6,6 +6,8 @@
  *   frequency: { enabled: boolean; weight: number; label: string };
  *   transition: { enabled: boolean; weight: number; label: string };
  *   cooccurrence: { enabled: boolean; weight: number; label: string };
+ *   spectral: { enabled: boolean; weight: number; label: string };
+ *   compressibility: { enabled: boolean; weight: number; label: string };
  * }}
  */
 export const DEFAULT_ANALYSIS_WEIGHTS = {
@@ -23,5 +25,15 @@ export const DEFAULT_ANALYSIS_WEIGHTS = {
     enabled: true,
     weight: 0.45,
     label: "Same-draw co-occurrence",
+  },
+  spectral: {
+    enabled: true,
+    weight: 0.35,
+    label: "Spectral (graph modes)",
+  },
+  compressibility: {
+    enabled: true,
+    weight: 0.3,
+    label: "Entropy-rate proxy",
   },
 };
