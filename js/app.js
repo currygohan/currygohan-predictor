@@ -99,6 +99,13 @@ function renderPicks(game, rows) {
   game.picksEl.replaceChildren();
   const suggestion = suggestSets(game.id, rows);
 
+  if (suggestion?.caption) {
+    const note = document.createElement("p");
+    note.className = "pick-note";
+    note.textContent = suggestion.caption;
+    game.picksEl.appendChild(note);
+  }
+
   for (const label of ["Set A", "Set B"]) {
     const card = document.createElement("div");
     card.className = "pick-card";
@@ -109,7 +116,7 @@ function renderPicks(game, rows) {
 
     if (!suggestion) {
       body.classList.add("pending");
-      body.textContent = "Analysis not wired yet (phase 2).";
+      body.textContent = "Not enough history to score (or analysis disabled).";
     } else {
       const pick = label === "Set A" ? suggestion.setA : suggestion.setB;
       body.textContent = formatTicket(pick.whites, pick.bonus);
