@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lottery history &amp; picks (preview)</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <h1>Lottery board</h1>
+      <p class="tagline">Historical draws from normalized CSVs in this repo. Suggested numbers come later.</p>
+    </header>
+
+    <p class="disclaimer" role="note">
+      <strong>Disclaimer:</strong> Lottery draws are random. This page is for entertainment and personal organization only.
+      It does not predict results and is not gambling or financial advice.
+    </p>
+
+    <section class="game" aria-labelledby="mm-heading">
+      <h2 id="mm-heading">Mega Millions</h2>
+      <p id="mm-status" class="status" aria-live="polite"></p>
+      <div class="table-wrap">
+        <table class="draws">
+          <caption>Recent draws</caption>
+          <thead id="mm-table-head"></thead>
+          <tbody id="mm-table-body"></tbody>
+        </table>
+      </div>
+      <div id="mm-picks" class="picks" aria-label="Suggested Mega Millions sets"></div>
+    </section>
+
+    <section class="game" aria-labelledby="pb-heading">
+      <h2 id="pb-heading">Powerball</h2>
+      <p id="pb-status" class="status" aria-live="polite"></p>
+      <div class="table-wrap">
+        <table class="draws">
+          <caption>Recent draws</caption>
+          <thead id="pb-table-head"></thead>
+          <tbody id="pb-table-body"></tbody>
+        </table>
+      </div>
+      <div id="pb-picks" class="picks" aria-label="Suggested Powerball sets"></div>
+    </section>
+
+    <footer class="site-footer">
+      Data files: <code>data/mega_millions.csv</code>, <code>data/powerball.csv</code>. Updates via GitHub Actions.
+    </footer>
+  </main>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
