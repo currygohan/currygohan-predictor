@@ -2,8 +2,8 @@ name: Update lottery CSVs
 
 on:
   schedule:
-    # After typical US draw nights; adjust if needed (UTC).
-    - cron: "40 14 * * *"
+    # Twice daily UTC: catches post-draw windows for US evening draws.
+    - cron: "15 6,16 * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Merge remote + official + existing data
+      # Daily source: NY Open Data API only. Optional: set repo Actions variable
+      # MERGE_OFFICIAL_CSV=true to also merge megamillions.csv / powerball.csv.
+      - name: Fetch, validate, merge lottery CSVs
+        env:
+          MERGE_OFFICIAL_CSV: ${{ vars.MERGE_OFFICIAL_CSV }}
         run: python scripts/update_lottery_csvs.py
 
       - name: Commit if changed

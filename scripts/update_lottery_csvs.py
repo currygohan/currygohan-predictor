@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """
-Merge New York State open-data lottery JSON into normalized CSVs under data/.
+Daily lottery draw updater: fetches from New York State open data (Socrata),
+validates numbers and dates, merges into data/*.csv, prunes rule cutoffs.
 
-Also ingests official repo-root CSV exports (megamillions.csv, powerball.csv) when present.
-Prunes rows before game rule cutoffs. Dedupes by (draw_date, sorted whites, bonus).
+Official repo-root CSVs (megamillions.csv, powerball.csv) are optional:
+set MERGE_OFFICIAL_CSV=1 to merge them (e.g. one-time history); daily runs
+do not require re-downloading those files.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import os
+import random
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -27,16 +32,32 @@ OFFICIAL_PB = REPO_ROOT / "powerball.csv"
 CUTOFF_PB = date(2015, 10, 4)
 CUTOFF_MM = date(2025, 4, 8)
 
+# Current matrix rules (post-cutoff draws must satisfy these).
+MM_WHITE_MIN, MM_WHITE_MAX = 1, 70
+MM_BONUS_MIN, MM_BONUS_MAX = 1, 24
+PB_WHITE_MIN, PB_WHITE_MAX = 1, 69
+PB_BONUS_MIN, PB_BONUS_MAX = 1, 26
+
 NY_MM_JSON = (
     "https://data.ny.gov/resource/5xaw-6ayf.json"
-    "?$order=draw_date%20DESC&$limit=120"
+    "?$order=draw_date%20DESC&$limit=500"
 )
 NY_PB_JSON = (
     "https://data.ny.gov/resource/d6yy-54nr.json"
-    "?$order=draw_date%20DESC&$limit=120"
+    "?$order=draw_date%20DESC&$limit=500"
 )
 
 FIELDNAMES = ("draw_date", "n1", "n2", "n3", "n4", "n5", "bonus", "multiplier", "source")
+
+USER_AGENT = (
+    "currygohan-predictor/1.1 (+https://github.com/currygohan/currygohan-predictor)"
+)
+
+# Fail if repo history is this stale vs UTC "today" (draws can skip holidays; 14d is safe slack).
+MAX_STALENESS_DAYS = 14
+
+FETCH_RETRIES = 4
+FETCH_BASE_DELAY_SEC = 2.0
 
 
 @dataclass(frozen=True)
@@ -47,7 +68,7 @@ class Draw:
     multiplier: str
     source: str
 
-    def key(self) -> tuple:
+    def key(self) -> tuple[str, tuple[int, int, int, int, int], int]:
         return (self.draw_date.isoformat(), self.whites, self.bonus)
 
     def as_dict(self) -> dict[str, str]:
@@ -64,21 +85,88 @@ class Draw:
         }
 
 
-def fetch_json(url: str) -> list[dict]:
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "currygohan-predictor/1.0 (+https://github.com/currygohan/currygohan-predictor)"},
+def _merge_official_enabled() -> bool:
+    return os.environ.get("MERGE_OFFICIAL_CSV", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
     )
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        raw = resp.read().decode("utf-8")
-    data = json.loads(raw)
-    if not isinstance(data, list):
-        raise ValueError("expected JSON array from NY API")
-    return data
+
+
+def utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def fetch_json(url: str) -> list[dict]:
+    last_err: BaseException | None = None
+    for attempt in range(FETCH_RETRIES):
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                raw = resp.read().decode("utf-8")
+            data = json.loads(raw)
+            if not isinstance(data, list):
+                raise ValueError("expected JSON array from NY API")
+            return data
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, ValueError) as e:
+            last_err = e
+            if attempt + 1 < FETCH_RETRIES:
+                delay = FETCH_BASE_DELAY_SEC * (2**attempt) + random.uniform(0, 0.5)
+                time.sleep(delay)
+    assert last_err is not None
+    raise last_err
 
 
 def parse_iso_date(s: str) -> date:
-    return datetime.strptime(s[:10], "%Y-%m-%d").date()
+    s = str(s).strip()[:10]
+    return datetime.strptime(s, "%Y-%m-%d").date()
+
+
+def validate_draw_date(
+    d: date,
+    *,
+    cutoff: date,
+    label: str,
+) -> None:
+    """Reject impossible or out-of-range calendar dates from the feed."""
+    if d < cutoff:
+        raise ValueError(f"{label}: draw_date {d} is before rule cutoff {cutoff}")
+    today = utc_today()
+    if d > today + timedelta(days=1):
+        raise ValueError(
+            f"{label}: draw_date {d} is in the future (today UTC {today}); bad feed or clock"
+        )
+    if d.year < 2000 or d.year > today.year + 1:
+        raise ValueError(f"{label}: draw_date {d} has absurd year")
+
+
+def validate_mega_draw(draw: Draw) -> None:
+    validate_draw_date(draw.draw_date, cutoff=CUTOFF_MM, label="Mega Millions")
+    w = draw.whites
+    if len(w) != 5 or len(set(w)) != 5:
+        raise ValueError(f"Mega Millions: need 5 distinct white balls, got {w!r}")
+    for n in w:
+        if not (MM_WHITE_MIN <= n <= MM_WHITE_MAX):
+            raise ValueError(f"Mega Millions: white ball {n} out of range [{MM_WHITE_MIN}, {MM_WHITE_MAX}]")
+    if not (MM_BONUS_MIN <= draw.bonus <= MM_BONUS_MAX):
+        raise ValueError(
+            f"Mega Millions: Mega Ball {draw.bonus} out of range [{MM_BONUS_MIN}, {MM_BONUS_MAX}]"
+        )
+
+
+def validate_powerball_draw(draw: Draw) -> None:
+    validate_draw_date(draw.draw_date, cutoff=CUTOFF_PB, label="Powerball")
+    w = draw.whites
+    if len(w) != 5 or len(set(w)) != 5:
+        raise ValueError(f"Powerball: need 5 distinct white balls, got {w!r}")
+    for n in w:
+        if not (PB_WHITE_MIN <= n <= PB_WHITE_MAX):
+            raise ValueError(f"Powerball: white ball {n} out of range [{PB_WHITE_MIN}, {PB_WHITE_MAX}]")
+    if not (PB_BONUS_MIN <= draw.bonus <= PB_BONUS_MAX):
+        raise ValueError(
+            f"Powerball: Powerball {draw.bonus} out of range [{PB_BONUS_MIN}, {PB_BONUS_MAX}]"
+        )
 
 
 def ny_mega_to_draw(obj: dict) -> Draw:
@@ -88,7 +176,9 @@ def ny_mega_to_draw(obj: dict) -> Draw:
         raise ValueError(f"mega winning_numbers: expected 5 ints, got {whites!r}")
     bonus = int(str(obj["mega_ball"]).strip())
     mult = str(obj.get("multiplier") or "").strip()
-    return Draw(d, whites, bonus, mult, "ny_open_data")
+    draw = Draw(d, whites, bonus, mult, "ny_open_data")
+    validate_mega_draw(draw)
+    return draw
 
 
 def ny_powerball_to_draw(obj: dict) -> Draw:
@@ -99,7 +189,11 @@ def ny_powerball_to_draw(obj: dict) -> Draw:
     whites = tuple(sorted(parts[:5]))
     bonus = parts[5]
     mult = str(obj.get("multiplier") or "").strip()
-    return Draw(d, whites, bonus, mult, "ny_open_data")
+    if isinstance(obj.get("multiplier"), (int, float)) and not mult:
+        mult = str(int(obj["multiplier"]))
+    draw = Draw(d, whites, bonus, mult, "ny_open_data")
+    validate_powerball_draw(draw)
+    return draw
 
 
 def parse_official_mega_row(cells: list[str]) -> Draw | None:
@@ -112,7 +206,9 @@ def parse_official_mega_row(cells: list[str]) -> Draw | None:
     whites = tuple(sorted(int(cells[i]) for i in range(4, 9)))
     bonus = int(cells[9])
     mult = cells[10].strip() if len(cells) > 10 else ""
-    return Draw(date(y, m, d), whites, bonus, mult, "official_csv")
+    draw = Draw(date(y, m, d), whites, bonus, mult, "official_csv")
+    validate_mega_draw(draw)
+    return draw
 
 
 def parse_official_pb_row(cells: list[str]) -> Draw | None:
@@ -125,7 +221,9 @@ def parse_official_pb_row(cells: list[str]) -> Draw | None:
     whites = tuple(sorted(int(cells[i]) for i in range(4, 9)))
     bonus = int(cells[9])
     mult = cells[10].strip() if len(cells) > 10 else ""
-    return Draw(date(y, m, d), whites, bonus, mult, "official_csv")
+    draw = Draw(date(y, m, d), whites, bonus, mult, "official_csv")
+    validate_powerball_draw(draw)
+    return draw
 
 
 def iter_official(path: Path, parser):
@@ -150,10 +248,7 @@ def load_normalized_csv(path: Path) -> list[Draw]:
         for r in reader:
             try:
                 dd = date.fromisoformat(str(r.get("draw_date", "")).strip())
-                w = tuple(
-                    int(str(r.get(f"n{i}", "")).strip())
-                    for i in range(1, 6)
-                )
+                w = tuple(int(str(r.get(f"n{i}", "")).strip()) for i in range(1, 6))
                 w = tuple(sorted(w))
                 b = int(str(r.get("bonus", "")).strip())
                 mult = str(r.get("multiplier") or "").strip()
@@ -164,8 +259,54 @@ def load_normalized_csv(path: Path) -> list[Draw]:
     return out
 
 
+def assert_no_date_collision(
+    existing: list[Draw],
+    incoming: list[Draw],
+    *,
+    label: str,
+) -> None:
+    """Same calendar date must map to the same numbers (NY vs repo)."""
+    by_date: dict[date, tuple[tuple[int, int, int, int, int], int]] = {}
+    for d in existing:
+        if d.draw_date in by_date and by_date[d.draw_date] != (d.whites, d.bonus):
+            raise ValueError(f"{label}: corrupt existing CSV: duplicate dates with different numbers")
+        by_date[d.draw_date] = (d.whites, d.bonus)
+    for d in incoming:
+        if d.draw_date not in by_date:
+            continue
+        prev = by_date[d.draw_date]
+        if prev != (d.whites, d.bonus):
+            raise ValueError(
+                f"{label}: data mismatch on {d.draw_date}: repo has {prev}, "
+                f"incoming has {(d.whites, d.bonus)} — refusing to overwrite"
+            )
+
+
+def assert_fresh_enough(draws: list[Draw], *, label: str) -> None:
+    if not draws:
+        raise ValueError(f"{label}: no draws after merge; refusing to write empty file")
+    latest = max(d.draw_date for d in draws)
+    today = utc_today()
+    if (today - latest).days > MAX_STALENESS_DAYS:
+        raise ValueError(
+            f"{label}: latest draw {latest} is more than {MAX_STALENESS_DAYS} days behind "
+            f"UTC today {today}; feed may be broken — refusing to commit"
+        )
+
+
+def assert_unique_dates(draws: list[Draw], *, label: str) -> None:
+    by_date: dict[date, tuple[tuple[int, int, int, int, int], int]] = {}
+    for d in draws:
+        if d.draw_date in by_date and by_date[d.draw_date] != (d.whites, d.bonus):
+            raise ValueError(
+                f"{label}: API returned two different rows for {d.draw_date}: "
+                f"{by_date[d.draw_date]} vs {(d.whites, d.bonus)}"
+            )
+        by_date[d.draw_date] = (d.whites, d.bonus)
+
+
 def merge_draws(*batches: list[Draw]) -> list[Draw]:
-    by_key: dict[tuple, Draw] = {}
+    by_key: dict[tuple[str, tuple[int, int, int, int, int], int], Draw] = {}
     for batch in batches:
         for d in batch:
             by_key[d.key()] = d
@@ -186,42 +327,63 @@ def write_csv(path: Path, draws: list[Draw]) -> None:
 
 
 def run() -> int:
-    errors: list[str] = []
+    merge_official = _merge_official_enabled()
 
-    remote_mm: list[Draw] = []
-    remote_pb: list[Draw] = []
     try:
-        remote_mm = [ny_mega_to_draw(o) for o in fetch_json(NY_MM_JSON)]
+        raw_mm = fetch_json(NY_MM_JSON)
+        raw_pb = fetch_json(NY_PB_JSON)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as e:
-        errors.append(f"Mega NY fetch failed: {e}")
-    try:
-        remote_pb = [ny_powerball_to_draw(o) for o in fetch_json(NY_PB_JSON)]
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as e:
-        errors.append(f"Powerball NY fetch failed: {e}")
+        print(f"ERROR: NY API fetch failed after retries: {e}", file=sys.stderr)
+        return 1
 
-    official_mm = list(iter_official(OFFICIAL_MEGA, parse_official_mega_row))
-    official_pb = list(iter_official(OFFICIAL_PB, parse_official_pb_row))
+    try:
+        remote_mm = [ny_mega_to_draw(o) for o in raw_mm]
+        remote_pb = [ny_powerball_to_draw(o) for o in raw_pb]
+        assert_unique_dates(remote_mm, label="Mega Millions")
+        assert_unique_dates(remote_pb, label="Powerball")
+    except (ValueError, KeyError, TypeError) as e:
+        print(f"ERROR: invalid data from NY API: {e}", file=sys.stderr)
+        return 1
 
     existing_mm = load_normalized_csv(DATA_MEGA)
     existing_pb = load_normalized_csv(DATA_PB)
 
+    try:
+        assert_no_date_collision(existing_mm, remote_mm, label="Mega Millions")
+        assert_no_date_collision(existing_pb, remote_pb, label="Powerball")
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+
+    official_mm: list[Draw] = []
+    official_pb: list[Draw] = []
+    if merge_official:
+        try:
+            official_mm = [d for d in iter_official(OFFICIAL_MEGA, parse_official_mega_row) if d]
+            official_pb = [d for d in iter_official(OFFICIAL_PB, parse_official_pb_row) if d]
+            assert_no_date_collision(official_mm, remote_mm, label="Mega Millions (official vs NY)")
+            assert_no_date_collision(official_pb, remote_pb, label="Powerball (official vs NY)")
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+
     mm = prune(merge_draws(existing_mm, official_mm, remote_mm), CUTOFF_MM)
     pb = prune(merge_draws(existing_pb, official_pb, remote_pb), CUTOFF_PB)
+
+    try:
+        assert_fresh_enough(mm, label="Mega Millions")
+        assert_fresh_enough(pb, label="Powerball")
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
 
     write_csv(DATA_MEGA, mm)
     write_csv(DATA_PB, pb)
 
-    if errors:
-        print("Warnings:", file=sys.stderr)
-        for e in errors:
-            print(f"  {e}", file=sys.stderr)
-        if not official_mm and not existing_mm and not remote_mm:
-            return 1
-        if not official_pb and not existing_pb and not remote_pb:
-            return 1
-
-    print(f"Wrote {len(mm)} Mega Millions rows -> {DATA_MEGA.relative_to(REPO_ROOT)}")
-    print(f"Wrote {len(pb)} Powerball rows -> {DATA_PB.relative_to(REPO_ROOT)}")
+    print(f"OK: wrote {len(mm)} Mega Millions rows -> {DATA_MEGA.relative_to(REPO_ROOT)}")
+    print(f"OK: wrote {len(pb)} Powerball rows -> {DATA_PB.relative_to(REPO_ROOT)}")
+    if not merge_official:
+        print("(Official root CSVs not merged; set MERGE_OFFICIAL_CSV=1 to include them.)")
     return 0
 
 
