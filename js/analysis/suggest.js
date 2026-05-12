@@ -1,5 +1,9 @@
 import { DEFAULT_ANALYSIS_WEIGHTS } from "./config.js";
 import { GAME_RULES } from "./constants.js";
+import {
+  buildCooccurrenceMatrices,
+  cooccurrenceScoresForContext,
+} from "./cooccurrence.js";
 import { computeFrequencyCounts } from "./frequency.js";
 import { mergeScores, pickTwoTicketsFromScores, scaleScores } from "./mixer.js";
 import {
@@ -34,13 +38,19 @@ export function suggestSets(game, historyRows) {
 
   const freqCfg = DEFAULT_ANALYSIS_WEIGHTS.frequency;
   const transCfg = DEFAULT_ANALYSIS_WEIGHTS.transition;
+  const coCfg = DEFAULT_ANALYSIS_WEIGHTS.cooccurrence;
 
   const freqOn = freqCfg.enabled && freqCfg.weight > 0;
   const transOn = transCfg.enabled && transCfg.weight > 0;
-  if (!freqOn && !transOn) return null;
+  const coOn = coCfg.enabled && coCfg.weight > 0;
+  if (!freqOn && !transOn && !coOn) return null;
 
   let combined = zeroScoreMaps(game);
   const captionParts = [];
+
+  const ordered =
+    transOn || coOn ? sortChronological(historyRows) : null;
+  const last = ordered?.length ? ordered[ordered.length - 1] : null;
 
   if (freqOn) {
     const counts = computeFrequencyCounts(historyRows, rules);
@@ -50,9 +60,7 @@ export function suggestSets(game, historyRows) {
     captionParts.push(`${freqCfg.label} (${fw})`);
   }
 
-  if (transOn) {
-    const ordered = sortChronological(historyRows);
-    const last = ordered[ordered.length - 1];
+  if (transOn && ordered && last) {
     if (ordered.length >= 2) {
       const matrices = buildTransitionMatrices(ordered, rules);
       const rawTrans = transitionScoresForNextDraw(matrices, last, rules);
@@ -65,6 +73,17 @@ export function suggestSets(game, historyRows) {
     } else {
       captionParts.push(`${transCfg.label} (skipped — need 2+ draws for pairs)`);
     }
+  }
+
+  if (coOn && ordered && last) {
+    const coMats = buildCooccurrenceMatrices(historyRows, rules);
+    const rawCo = cooccurrenceScoresForContext(coMats, last, rules);
+    const scaled = scaleScores(rawCo, coCfg.weight);
+    combined = mergeScores(combined, scaled, game);
+    const cw = coCfg.weight === 1 ? "×1" : `×${coCfg.weight}`;
+    captionParts.push(
+      `${coCfg.label} (${cw}; white–white pairs + white–bonus with latest draw ${last.draw_date})`,
+    );
   }
 
   const tickets = pickTwoTicketsFromScores(combined, game);
