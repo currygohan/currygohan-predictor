@@ -1,20 +1,44 @@
 import { GAME_RULES } from "./constants.js";
 
 /**
- * Turn raw hit counts into weighted scores (single analyzer for now).
+ * Multiply every white/bonus score by a weight (frequency counts or transition counts).
  *
- * @param {{ white: Record<number, number>, bonus: Record<number, number> }} counts
+ * @param {{ white: Record<number, number>, bonus: Record<number, number> }} scores
  * @param {number} weight
  */
-export function applyFrequencyWeight(counts, weight) {
+export function scaleScores(scores, weight) {
   /** @type {{ white: Record<number, number>, bonus: Record<number, number> }} */
   const white = {};
   const bonus = {};
-  for (const [k, v] of Object.entries(counts.white)) {
+  for (const [k, v] of Object.entries(scores.white)) {
     white[Number(k)] = v * weight;
   }
-  for (const [k, v] of Object.entries(counts.bonus)) {
+  for (const [k, v] of Object.entries(scores.bonus)) {
     bonus[Number(k)] = v * weight;
+  }
+  return { white, bonus };
+}
+
+/** @deprecated use scaleScores */
+export const applyFrequencyWeight = scaleScores;
+
+/**
+ * @param {{ white: Record<number, number>, bonus: Record<number, number> }} a
+ * @param {{ white: Record<number, number>, bonus: Record<number, number> }} b
+ * @param {"mega_millions"|"powerball"} game
+ */
+export function mergeScores(a, b, game) {
+  const rules = GAME_RULES[game];
+  if (!rules) return { white: {}, bonus: {} };
+  const { whiteMin, whiteMax, bonusMin, bonusMax } = rules;
+  /** @type {{ white: Record<number, number>, bonus: Record<number, number> }} */
+  const white = {};
+  const bonus = {};
+  for (let n = whiteMin; n <= whiteMax; n += 1) {
+    white[n] = (a.white[n] ?? 0) + (b.white[n] ?? 0);
+  }
+  for (let n = bonusMin; n <= bonusMax; n += 1) {
+    bonus[n] = (a.bonus[n] ?? 0) + (b.bonus[n] ?? 0);
   }
   return { white, bonus };
 }
