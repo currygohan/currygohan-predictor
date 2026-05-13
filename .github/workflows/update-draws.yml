@@ -28,6 +28,9 @@ jobs:
       - name: Fetch, validate, merge lottery CSVs
         env:
           MERGE_OFFICIAL_CSV: ${{ vars.MERGE_OFFICIAL_CSV }}
+          # Optional: create repo secret SOCRATA_APP_TOKEN (Socrata / NYC Open Data) if
+          # data.ny.gov returns 403 from GitHub Actions IPs.
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
         run: python scripts/update_lottery_csvs.py
 
       - name: Commit if changed

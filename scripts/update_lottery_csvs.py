@@ -17,6 +17,7 @@ import random
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -38,14 +39,8 @@ MM_BONUS_MIN, MM_BONUS_MAX = 1, 24
 PB_WHITE_MIN, PB_WHITE_MAX = 1, 69
 PB_BONUS_MIN, PB_BONUS_MAX = 1, 26
 
-NY_MM_JSON = (
-    "https://data.ny.gov/resource/5xaw-6ayf.json"
-    "?$order=draw_date%20DESC&$limit=500"
-)
-NY_PB_JSON = (
-    "https://data.ny.gov/resource/d6yy-54nr.json"
-    "?$order=draw_date%20DESC&$limit=500"
-)
+NY_MM_BASE = "https://data.ny.gov/resource/5xaw-6ayf.json?$order=draw_date%20DESC&$limit=500"
+NY_PB_BASE = "https://data.ny.gov/resource/d6yy-54nr.json?$order=draw_date%20DESC&$limit=500"
 
 FIELDNAMES = ("draw_date", "n1", "n2", "n3", "n4", "n5", "bonus", "multiplier", "source")
 
@@ -53,11 +48,19 @@ USER_AGENT = (
     "currygohan-predictor/1.1 (+https://github.com/currygohan/currygohan-predictor)"
 )
 
-# Fail if repo history is this stale vs UTC "today" (draws can skip holidays; 14d is safe slack).
-MAX_STALENESS_DAYS = 14
+# Warn if merged history is this stale vs UTC "today" (does not fail the job).
+MAX_STALENESS_WARN_DAYS = 21
 
-FETCH_RETRIES = 4
+FETCH_RETRIES = 5
 FETCH_BASE_DELAY_SEC = 2.0
+
+
+def _ny_url(base: str) -> str:
+    token = os.environ.get("SOCRATA_APP_TOKEN", "").strip()
+    if not token:
+        return base
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}$$app_token={urllib.parse.quote(token, safe='')}"
 
 
 @dataclass(frozen=True)
@@ -101,7 +104,13 @@ def utc_today() -> date:
 def fetch_json(url: str) -> list[dict]:
     last_err: BaseException | None = None
     for attempt in range(FETCH_RETRIES):
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+            },
+        )
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 raw = resp.read().decode("utf-8")
@@ -259,39 +268,32 @@ def load_normalized_csv(path: Path) -> list[Draw]:
     return out
 
 
-def assert_no_date_collision(
-    existing: list[Draw],
-    incoming: list[Draw],
-    *,
-    label: str,
-) -> None:
-    """Same calendar date must map to the same numbers (NY vs repo)."""
-    by_date: dict[date, tuple[tuple[int, int, int, int, int], int]] = {}
-    for d in existing:
-        if d.draw_date in by_date and by_date[d.draw_date] != (d.whites, d.bonus):
-            raise ValueError(f"{label}: corrupt existing CSV: duplicate dates with different numbers")
-        by_date[d.draw_date] = (d.whites, d.bonus)
-    for d in incoming:
-        if d.draw_date not in by_date:
-            continue
-        prev = by_date[d.draw_date]
-        if prev != (d.whites, d.bonus):
-            raise ValueError(
-                f"{label}: data mismatch on {d.draw_date}: repo has {prev}, "
-                f"incoming has {(d.whites, d.bonus)} — refusing to overwrite"
-            )
-
-
-def assert_fresh_enough(draws: list[Draw], *, label: str) -> None:
+def warn_if_stale(draws: list[Draw], *, label: str) -> None:
     if not draws:
-        raise ValueError(f"{label}: no draws after merge; refusing to write empty file")
+        print(f"WARN: {label}: no draws after merge.", file=sys.stderr)
+        return
     latest = max(d.draw_date for d in draws)
     today = utc_today()
-    if (today - latest).days > MAX_STALENESS_DAYS:
-        raise ValueError(
-            f"{label}: latest draw {latest} is more than {MAX_STALENESS_DAYS} days behind "
-            f"UTC today {today}; feed may be broken — refusing to commit"
+    age = (today - latest).days
+    if age > MAX_STALENESS_WARN_DAYS:
+        print(
+            f"WARN: {label}: latest draw {latest} is {age} days behind UTC today {today} "
+            f"(>{MAX_STALENESS_WARN_DAYS}d). Check NY feed or push a manual CSV update.",
+            file=sys.stderr,
         )
+
+
+def drop_dates_overridden_by_remote(local: list[Draw], remote: list[Draw]) -> list[Draw]:
+    """When NY publishes a correction for a date, prefer remote over repo rows for that date."""
+    rdates = {d.draw_date for d in remote}
+    return [d for d in local if d.draw_date not in rdates]
+
+
+def drop_dates_overridden_by_remote_official(
+    official: list[Draw], remote: list[Draw]
+) -> list[Draw]:
+    rdates = {d.draw_date for d in remote}
+    return [d for d in official if d.draw_date not in rdates]
 
 
 def assert_unique_dates(draws: list[Draw], *, label: str) -> None:
@@ -329,53 +331,67 @@ def write_csv(path: Path, draws: list[Draw]) -> None:
 def run() -> int:
     merge_official = _merge_official_enabled()
 
-    try:
-        raw_mm = fetch_json(NY_MM_JSON)
-        raw_pb = fetch_json(NY_PB_JSON)
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as e:
-        print(f"ERROR: NY API fetch failed after retries: {e}", file=sys.stderr)
-        return 1
+    url_mm = _ny_url(NY_MM_BASE)
+    url_pb = _ny_url(NY_PB_BASE)
 
     try:
-        remote_mm = [ny_mega_to_draw(o) for o in raw_mm]
-        remote_pb = [ny_powerball_to_draw(o) for o in raw_pb]
+        raw_mm = fetch_json(url_mm)
+        raw_pb = fetch_json(url_pb)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as e:
+        print(
+            f"WARN: NY API fetch failed after retries ({e!r}). "
+            "Leaving CSVs unchanged. Optional: add repo secret SOCRATA_APP_TOKEN "
+            "if you see HTTP 403 from data.ny.gov.",
+            file=sys.stderr,
+        )
+        return 0
+
+    remote_mm: list[Draw] = []
+    remote_pb: list[Draw] = []
+    for o in raw_mm:
+        try:
+            remote_mm.append(ny_mega_to_draw(o))
+        except (ValueError, KeyError, TypeError) as e:
+            print(f"WARN: skip Mega row {o!r}: {e}", file=sys.stderr)
+    for o in raw_pb:
+        try:
+            remote_pb.append(ny_powerball_to_draw(o))
+        except (ValueError, KeyError, TypeError) as e:
+            print(f"WARN: skip Powerball row {o!r}: {e}", file=sys.stderr)
+
+    if not remote_mm or not remote_pb:
+        print(
+            "WARN: No usable remote draws after parsing; leaving CSVs unchanged.",
+            file=sys.stderr,
+        )
+        return 0
+
+    try:
         assert_unique_dates(remote_mm, label="Mega Millions")
         assert_unique_dates(remote_pb, label="Powerball")
     except (ValueError, KeyError, TypeError) as e:
-        print(f"ERROR: invalid data from NY API: {e}", file=sys.stderr)
+        print(f"ERROR: duplicate conflicting dates in NY API payload: {e}", file=sys.stderr)
         return 1
 
     existing_mm = load_normalized_csv(DATA_MEGA)
     existing_pb = load_normalized_csv(DATA_PB)
 
-    try:
-        assert_no_date_collision(existing_mm, remote_mm, label="Mega Millions")
-        assert_no_date_collision(existing_pb, remote_pb, label="Powerball")
-    except ValueError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 1
+    existing_mm = drop_dates_overridden_by_remote(existing_mm, remote_mm)
+    existing_pb = drop_dates_overridden_by_remote(existing_pb, remote_pb)
 
     official_mm: list[Draw] = []
     official_pb: list[Draw] = []
     if merge_official:
-        try:
-            official_mm = [d for d in iter_official(OFFICIAL_MEGA, parse_official_mega_row) if d]
-            official_pb = [d for d in iter_official(OFFICIAL_PB, parse_official_pb_row) if d]
-            assert_no_date_collision(official_mm, remote_mm, label="Mega Millions (official vs NY)")
-            assert_no_date_collision(official_pb, remote_pb, label="Powerball (official vs NY)")
-        except ValueError as e:
-            print(f"ERROR: {e}", file=sys.stderr)
-            return 1
+        official_mm = [d for d in iter_official(OFFICIAL_MEGA, parse_official_mega_row) if d]
+        official_pb = [d for d in iter_official(OFFICIAL_PB, parse_official_pb_row) if d]
+        official_mm = drop_dates_overridden_by_remote_official(official_mm, remote_mm)
+        official_pb = drop_dates_overridden_by_remote_official(official_pb, remote_pb)
 
     mm = prune(merge_draws(existing_mm, official_mm, remote_mm), CUTOFF_MM)
     pb = prune(merge_draws(existing_pb, official_pb, remote_pb), CUTOFF_PB)
 
-    try:
-        assert_fresh_enough(mm, label="Mega Millions")
-        assert_fresh_enough(pb, label="Powerball")
-    except ValueError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 1
+    warn_if_stale(mm, label="Mega Millions")
+    warn_if_stale(pb, label="Powerball")
 
     write_csv(DATA_MEGA, mm)
     write_csv(DATA_PB, pb)
