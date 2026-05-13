@@ -10,6 +10,8 @@
  *   compressibility: { enabled: boolean; weight: number; label: string };
  *   weekday: { enabled: boolean; weight: number; label: string };
  *   moon: { enabled: boolean; weight: number; label: string };
+ *   sumSpread: { enabled: boolean; weight: number; label: string };
+ *   permutationNull: { enabled: boolean; replicates: number; label: string };
  * }}
  */
 export const DEFAULT_ANALYSIS_WEIGHTS = {
@@ -47,5 +49,15 @@ export const DEFAULT_ANALYSIS_WEIGHTS = {
     enabled: true,
     weight: 0.2,
     label: "Moon phase at draw (spurious)",
+  },
+  sumSpread: {
+    enabled: true,
+    weight: 0.28,
+    label: "Sum & spread of whites",
+  },
+  permutationNull: {
+    enabled: true,
+    replicates: 72,
+    label: "Date-shuffle MC null (Set B only)",
   },
 };
