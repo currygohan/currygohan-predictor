@@ -61,3 +61,33 @@ export const DEFAULT_ANALYSIS_WEIGHTS = {
     label: "Date-shuffle MC null (Set B only)",
   },
 };
+
+const SCORE_ANALYZER_KEYS = [
+  "frequency",
+  "transition",
+  "cooccurrence",
+  "spectral",
+  "compressibility",
+  "weekday",
+  "moon",
+  "sumSpread",
+];
+
+/**
+ * Single-line summary of which weighted signals feed the combined score,
+ * plus whether Set B uses the permutation null (shown on the page).
+ */
+export function summarizeActiveAnalyzersForUi() {
+  const parts = [];
+  for (const key of SCORE_ANALYZER_KEYS) {
+    const c = DEFAULT_ANALYSIS_WEIGHTS[key];
+    if (!c?.enabled || !(c.weight > 0)) continue;
+    const w = c.weight === 1 ? "×1" : `×${c.weight}`;
+    parts.push(`${c.label} ${w}`);
+  }
+  const p = DEFAULT_ANALYSIS_WEIGHTS.permutationNull;
+  if (p?.enabled && (p.replicates ?? 0) >= 8) {
+    parts.push(`${p.label} (${p.replicates} reps)`);
+  }
+  return parts.length ? parts.join(" · ") : "(no score analyzers enabled)";
+}

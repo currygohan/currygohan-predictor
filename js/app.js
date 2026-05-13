@@ -1,4 +1,5 @@
 import { parseCsv } from "./csv.js";
+import { summarizeActiveAnalyzersForUi } from "./analysis/config.js";
 import { suggestSets } from "./analysis/stub.js";
 
 const RECENT_COUNT = 25;
@@ -99,6 +100,17 @@ function renderPicks(game, rows) {
   game.picksEl.replaceChildren();
   const suggestion = suggestSets(game.id, rows);
 
+  const block = document.createElement("div");
+  block.className = "generated-block";
+  const title = document.createElement("h3");
+  title.className = "generated-title";
+  title.textContent = "Generated lines";
+  const mix = document.createElement("p");
+  mix.className = "analyzer-summary";
+  mix.textContent = summarizeActiveAnalyzersForUi();
+  block.append(title, mix);
+  game.picksEl.appendChild(block);
+
   if (suggestion?.caption) {
     const note = document.createElement("p");
     note.className = "pick-note";
@@ -116,13 +128,34 @@ function renderPicks(game, rows) {
 
     if (!suggestion) {
       body.classList.add("pending");
-      body.textContent = "Not enough history to score (or analysis disabled).";
+      body.textContent = "Not enough history to score (or all analyzers disabled in config).";
+      card.append(h3, body);
     } else {
       const pick = label === "Set A" ? suggestion.setA : suggestion.setB;
-      body.textContent = formatTicket(pick.whites, pick.bonus);
+      const line = formatTicket(pick.whites, pick.bonus);
+      body.textContent = line;
+
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "copy-line";
+      copy.textContent = "Copy line";
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(line);
+          copy.textContent = "Copied";
+          setTimeout(() => {
+            copy.textContent = "Copy line";
+          }, 1600);
+        } catch {
+          copy.textContent = "Copy failed";
+          setTimeout(() => {
+            copy.textContent = "Copy line";
+          }, 2000);
+        }
+      });
+      card.append(h3, body, copy);
     }
 
-    card.append(h3, body);
     game.picksEl.appendChild(card);
   }
 }

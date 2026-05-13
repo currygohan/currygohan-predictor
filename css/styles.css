@@ -155,6 +155,41 @@ table.draws tbody tr:hover {
   line-height: 1.45;
 }
 
+.generated-block {
+  grid-column: 1 / -1;
+  margin-bottom: 0.25rem;
+}
+
+.generated-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.analyzer-summary {
+  margin: 0 0 0.65rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.copy-line {
+  margin-top: 0.55rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.copy-line:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .pick-card {
   border: 1px dashed var(--border);
   border-radius: 8px;

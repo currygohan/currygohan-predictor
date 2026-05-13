@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Lottery history &amp; picks (preview)</title>
+  <title>Lottery board — generated lines</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <main>
     <header class="page-header">
       <h1>Lottery board</h1>
-      <p class="tagline">Historical draws from normalized CSVs in this repo. Suggested numbers come later.</p>
+      <p class="tagline">Two suggested lines per game: every weighted analysis below is summed into one score per ball, then Set A and Set B are built from that mix (see each section for details).</p>
     </header>
 
     <p class="disclaimer" role="note">
@@ -28,7 +28,7 @@
           <tbody id="mm-table-body"></tbody>
         </table>
       </div>
-      <div id="mm-picks" class="picks" aria-label="Suggested Mega Millions sets"></div>
+      <div id="mm-picks" class="picks" aria-label="Generated Mega Millions lines"></div>
     </section>
 
     <section class="game" aria-labelledby="pb-heading">
@@ -41,7 +41,7 @@
           <tbody id="pb-table-body"></tbody>
         </table>
       </div>
-      <div id="pb-picks" class="picks" aria-label="Suggested Powerball sets"></div>
+      <div id="pb-picks" class="picks" aria-label="Generated Powerball lines"></div>
     </section>
 
     <footer class="site-footer">
