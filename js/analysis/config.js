@@ -9,6 +9,7 @@
  *   spectral: { enabled: boolean; weight: number; label: string };
  *   compressibility: { enabled: boolean; weight: number; label: string };
  *   weekday: { enabled: boolean; weight: number; label: string };
+ *   moon: { enabled: boolean; weight: number; label: string };
  * }}
  */
 export const DEFAULT_ANALYSIS_WEIGHTS = {
@@ -41,5 +42,10 @@ export const DEFAULT_ANALYSIS_WEIGHTS = {
     enabled: true,
     weight: 0.22,
     label: "Weekday of draw (spurious)",
+  },
+  moon: {
+    enabled: true,
+    weight: 0.2,
+    label: "Moon phase at draw (spurious)",
   },
 };

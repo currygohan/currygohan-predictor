@@ -49,6 +49,23 @@ export function nextScheduledDrawDayOfWeek(game) {
 }
 
 /**
+ * Next official draw calendar day at local noon (same convention as parseLocalNoon).
+ * @param {"mega_millions"|"powerball"} game
+ * @returns {Date}
+ */
+export function nextScheduledDrawLocalNoon(game) {
+  const allowed = DRAW_DOW_BY_GAME[game];
+  if (!allowed?.length) return new Date(NaN);
+  const start = new Date();
+  start.setHours(12, 0, 0, 0);
+  for (let i = 0; i < 14; i += 1) {
+    if (allowed.includes(start.getDay())) return new Date(start);
+    start.setDate(start.getDate() + 1);
+  }
+  return new Date(NaN);
+}
+
+/**
  * Empirical rates on draws that fell on `targetDow` (local weekday of draw_date).
  * White score = (# of those draws where this white appeared) / (# of draws on that weekday).
  * Bonus score = (# of those draws with this bonus) / (# of draws on that weekday).

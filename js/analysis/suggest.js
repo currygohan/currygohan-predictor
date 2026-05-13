@@ -7,6 +7,11 @@ import {
 } from "./cooccurrence.js";
 import { computeFrequencyCounts } from "./frequency.js";
 import { mergeScores, pickTwoTicketsFromScores, scaleScores } from "./mixer.js";
+import {
+  computeMoonPhaseScores,
+  MOON_PHASE_LABELS,
+  nextScheduledDrawMoonPhaseBucket,
+} from "./moon.js";
 import { computeSpectralScores } from "./spectral.js";
 import {
   computeWeekdayScores,
@@ -49,6 +54,7 @@ export function suggestSets(game, historyRows) {
   const specCfg = DEFAULT_ANALYSIS_WEIGHTS.spectral;
   const compCfg = DEFAULT_ANALYSIS_WEIGHTS.compressibility;
   const wdCfg = DEFAULT_ANALYSIS_WEIGHTS.weekday;
+  const moonCfg = DEFAULT_ANALYSIS_WEIGHTS.moon;
 
   const freqOn = freqCfg.enabled && freqCfg.weight > 0;
   const transOn = transCfg.enabled && transCfg.weight > 0;
@@ -56,7 +62,8 @@ export function suggestSets(game, historyRows) {
   const specOn = specCfg.enabled && specCfg.weight > 0;
   const compOn = compCfg.enabled && compCfg.weight > 0;
   const wdOn = wdCfg.enabled && wdCfg.weight > 0;
-  if (!freqOn && !transOn && !coOn && !specOn && !compOn && !wdOn) return null;
+  const moonOn = moonCfg.enabled && moonCfg.weight > 0;
+  if (!freqOn && !transOn && !coOn && !specOn && !compOn && !wdOn && !moonOn) return null;
 
   let combined = zeroScoreMaps(game);
   const captionParts = [];
@@ -127,6 +134,18 @@ export function suggestSets(game, historyRows) {
     const ww = wdCfg.weight === 1 ? "×1" : `×${wdCfg.weight}`;
     captionParts.push(
       `${wdCfg.label} (${ww}; rates on ${DOW_SHORT[targetDow]} draws only — next scheduled draw weekday, local calendar; not causal)`,
+    );
+  }
+
+  if (moonOn) {
+    const targetBucket = nextScheduledDrawMoonPhaseBucket(game);
+    const rawMoon = computeMoonPhaseScores(game, historyRows, targetBucket);
+    const scaled = scaleScores(rawMoon, moonCfg.weight);
+    combined = mergeScores(combined, scaled, game);
+    const mw = moonCfg.weight === 1 ? "×1" : `×${moonCfg.weight}`;
+    const phaseName = MOON_PHASE_LABELS[targetBucket] ?? "?";
+    captionParts.push(
+      `${moonCfg.label} (${mw}; 8 synodic slices; context = ${phaseName} on next scheduled draw — local noon; not causal)`,
     );
   }
 
