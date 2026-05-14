@@ -1,4 +1,5 @@
 game,target_draw_date,predicted_at_utc,set_a_whites,set_a_bonus,set_b_whites,set_b_bonus,actual_n1,actual_n2,actual_n3,actual_n4,actual_n5,actual_bonus,accuracy_set_a_pct,accuracy_set_b_pct,white_hits_a,white_hits_b,bonus_hit_a,bonus_hit_b
 mega_millions,2026-05-12,2026-05-14T03:10:12.319Z,12|17|36|47|58,16,9|37|48|53|60,14,17,32,35,40,47,17,33,0,2,0,0,0
-powerball,2026-05-13,2026-05-14T03:19:10.926Z,4|41|44|58|63,5,34|42|46|50|54,11,,,,,,,,,,,,
-mega_millions,2026-05-15,2026-05-14T03:19:10.673Z,7|14|16|35|40,17,32|45|47|60|69,12,,,,,,,,,,,,
+powerball,2026-05-13,2026-05-14T03:19:10.926Z,4|41|44|58|63,5,34|42|46|50|54,11,22,31,52,56,67,15,0,0,0,0,0,0
+mega_millions,2026-05-15,2026-05-14T12:14:39.624Z,7|14|16|35|40,17,32|45|47|60|69,12,,,,,,,,,,,,
+powerball,2026-05-16,2026-05-14T12:14:40.156Z,12|19|59|62|64,18,1|3|7|27|51,2,,,,,,,,,,,,
