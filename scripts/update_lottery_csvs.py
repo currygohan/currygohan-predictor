@@ -3,6 +3,13 @@
 Daily lottery draw updater: fetches from New York State open data (Socrata),
 validates numbers and dates, merges into data/*.csv, prunes rule cutoffs.
 
+Merge behavior: each run pulls up to 500 most recent rows from the NY API and
+merges with existing data/*.csv. Every draw in that payload whose key
+(date + sorted whites + bonus) is not already present is added — so if your
+CSV was behind by several draws, one successful run can fill all of them at
+once (not only the single latest draw), as long as those draws appear in the
+500-row window.
+
 Official repo-root CSVs (megamillions.csv, powerball.csv) are optional:
 set MERGE_OFFICIAL_CSV=1 to merge them (e.g. one-time history); daily runs
 do not require re-downloading those files.
