@@ -8,6 +8,11 @@
 </head>
 <body>
   <main>
+    <nav class="site-nav" aria-label="Site sections">
+      <a href="index.html" class="site-nav__tab site-nav__tab--current">Draws &amp; picks</a>
+      <a href="predictions.html" class="site-nav__tab">Prediction history</a>
+    </nav>
+
     <header class="page-header">
       <h1>Lottery board</h1>
       <p class="tagline">Two suggested lines per game: every weighted analysis below is summed into one score per ball, then Set A and Set B are built from that mix (see each section for details).</p>
@@ -46,7 +51,7 @@
 
     <footer class="site-footer">
       Draw data: <code>data/mega_millions.csv</code>, <code>data/powerball.csv</code>.
-      Prediction log (Set A / Set B vs actuals when known): <code>data/prediction_history.csv</code>.
+      <a href="predictions.html">Prediction history table</a> reads <code>data/prediction_history.csv</code>.
       Updates via GitHub Actions.
     </footer>
   </main>
