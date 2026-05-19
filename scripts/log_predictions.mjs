@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import { parseCsv } from "../js/csv.js";
 import { suggestSets } from "../js/analysis/suggest.js";
 import { nextDrawCalendarDateIsoAfter } from "../js/analysis/schedule.js";
+import { scoreTicket } from "../js/stats/scoring.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -37,6 +38,10 @@ const COLS = [
   "actual_bonus",
   "accuracy_set_a_pct",
   "accuracy_set_b_pct",
+  "raw_match_pct_set_a",
+  "raw_match_pct_set_b",
+  "skill_z_set_a",
+  "skill_z_set_b",
   "white_hits_a",
   "white_hits_b",
   "bonus_hit_a",
@@ -93,20 +98,39 @@ function drawOnDate(rows, iso) {
 }
 
 /**
- * Combined accuracy: (white hits + bonus match) / 6 * 100
- * @param {number[]} predWhites
- * @param {number} predBonus
- * @param {{ whites: number[], bonus: number }} act
+ * @param {Record<string, string>} h
+ * @param {"mega_millions"|"powerball"} game
  */
-function scoreTicket(predWhites, predBonus, act) {
-  const pw = new Set(predWhites);
-  let wh = 0;
-  for (const w of act.whites) {
-    if (pw.has(w)) wh += 1;
-  }
-  const bh = predBonus === act.bonus ? 1 : 0;
-  const pct = Math.round((100 * (wh + bh)) / 6);
-  return { wh, bh, pct };
+function applyScoresToRow(h, game) {
+  const sorted = [
+    Number.parseInt(h.actual_n1, 10),
+    Number.parseInt(h.actual_n2, 10),
+    Number.parseInt(h.actual_n3, 10),
+    Number.parseInt(h.actual_n4, 10),
+    Number.parseInt(h.actual_n5, 10),
+  ].sort((a, b) => a - b);
+  const act = {
+    whites: sorted,
+    bonus: Number.parseInt(h.actual_bonus, 10),
+  };
+  const wa = h.set_a_whites.split("|").map((x) => Number.parseInt(x, 10));
+  const wb = h.set_b_whites.split("|").map((x) => Number.parseInt(x, 10));
+  const ba = Number.parseInt(h.set_a_bonus, 10);
+  const bb = Number.parseInt(h.set_b_bonus, 10);
+
+  const sa = scoreTicket(wa, ba, act, game);
+  const sb = scoreTicket(wb, bb, act, game);
+
+  h.white_hits_a = String(sa.whiteHits);
+  h.white_hits_b = String(sb.whiteHits);
+  h.bonus_hit_a = String(sa.bonusHit);
+  h.bonus_hit_b = String(sb.bonusHit);
+  h.raw_match_pct_set_a = String(sa.rawMatchPct);
+  h.raw_match_pct_set_b = String(sb.rawMatchPct);
+  h.skill_z_set_a = String(sa.skillZ);
+  h.skill_z_set_b = String(sb.skillZ);
+  h.accuracy_set_a_pct = String(sa.skillPercentile);
+  h.accuracy_set_b_pct = String(sb.skillPercentile);
 }
 
 function escapeCsvCell(s) {
@@ -164,20 +188,21 @@ function reconcile(history, game, gameRows) {
     h.actual_n4 = String(sorted[3]);
     h.actual_n5 = String(sorted[4]);
     h.actual_bonus = String(act.bonus);
+    applyScoresToRow(h, game);
+  }
+}
 
-    const wa = h.set_a_whites.split("|").map((x) => Number.parseInt(x, 10));
-    const wb = h.set_b_whites.split("|").map((x) => Number.parseInt(x, 10));
-    const ba = Number.parseInt(h.set_a_bonus, 10);
-    const bb = Number.parseInt(h.set_b_bonus, 10);
-
-    const sa = scoreTicket(wa, ba, act);
-    const sb = scoreTicket(wb, bb, act);
-    h.white_hits_a = String(sa.wh);
-    h.white_hits_b = String(sb.wh);
-    h.bonus_hit_a = String(sa.bh);
-    h.bonus_hit_b = String(sb.bh);
-    h.accuracy_set_a_pct = String(sa.pct);
-    h.accuracy_set_b_pct = String(sb.pct);
+/**
+ * Recompute odds-adjusted scores for rows that already have actuals (formula updates / backfill).
+ *
+ * @param {Record<string, string>[]} history
+ * @param {"mega_millions"|"powerball"} game
+ */
+function rescoreScoredRows(history, game) {
+  for (const h of history) {
+    if (h.game !== game) continue;
+    if (!String(h.actual_n1 || "").trim()) continue;
+    applyScoresToRow(h, game);
   }
 }
 
@@ -226,6 +251,10 @@ function appendPredictionForNextDraw(game, history, gameRows) {
     actual_bonus: "",
     accuracy_set_a_pct: "",
     accuracy_set_b_pct: "",
+    raw_match_pct_set_a: "",
+    raw_match_pct_set_b: "",
+    skill_z_set_a: "",
+    skill_z_set_b: "",
     white_hits_a: "",
     white_hits_b: "",
     bonus_hit_a: "",
@@ -251,6 +280,7 @@ function main() {
   for (const game of /** @type {const} */ (["mega_millions", "powerball"])) {
     const gameRows = loadGameRows(FILES[game]);
     reconcile(history, game, gameRows);
+    rescoreScoredRows(history, game);
   }
 
   for (const game of /** @type {const} */ (["mega_millions", "powerball"])) {

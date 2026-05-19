@@ -17,13 +17,30 @@
     <header class="page-header">
       <h1>Prediction history</h1>
       <p class="tagline">
-        Logged Set A / Set B vs actual results when the draw has happened. Accuracy is hits out of 6 (five whites + bonus).
+        Logged Set A / Set B vs actual draws. <strong>Skill %</strong> adjusts for how hard whites and the bonus are to match by chance (hypergeometric + bonus odds). <strong>Raw %</strong> is the old hits÷6 score.
       </p>
     </header>
 
     <p class="disclaimer" role="note">
-      <strong>Disclaimer:</strong> For entertainment only.
+      <strong>Disclaimer:</strong> For entertainment only. Lottery draws are random; a low p-value does not prove the model “works.”
     </p>
+
+    <section class="ph-analytics" aria-labelledby="ph-analytics-heading">
+      <h2 id="ph-analytics-heading" class="history-heading">Skill vs luck</h2>
+      <p class="ph-analytics__intro">
+        Each ticket gets a standardized <em>skill z</em> (whites vs hypergeometric null, bonus vs 1-in-pool). We aggregate all scored Set A/B tickets and test whether mean z &gt; 0 as the sample grows.
+      </p>
+      <div id="ph-analytics-stats" class="ph-analytics__stats" aria-label="Summary statistics"></div>
+      <p id="ph-analytics-copy" class="ph-analytics__copy" aria-live="polite">Loading…</p>
+    </section>
+
+    <section class="ph-chart-section" aria-labelledby="ph-chart-heading">
+      <h2 id="ph-chart-heading" class="history-heading">Skill over time</h2>
+      <p class="ph-chart__hint">
+        Green = Mega Millions, purple = Powerball. Dashed line = 50% (random expectation). Blue line = rolling average of skill %.
+      </p>
+      <canvas id="ph-chart" class="ph-chart" width="640" height="220" role="img" aria-label="Skill percentile by draw"></canvas>
+    </section>
 
     <section class="history-section" aria-labelledby="ph-heading">
       <h2 id="ph-heading" class="history-heading">Logged predictions</h2>
