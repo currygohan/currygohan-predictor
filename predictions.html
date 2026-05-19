@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
   <title>Prediction history — lottery board</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
-<body>
+<body class="theme-dark">
   <main>
     <nav class="site-nav" aria-label="Site sections">
       <a href="index.html" class="site-nav__tab">Draws &amp; picks</a>
@@ -16,40 +17,22 @@
     <header class="page-header">
       <h1>Prediction history</h1>
       <p class="tagline">
-        Logged Set A / Set B from the same weighted model as the main page. When the target draw has happened,
-        actual numbers and accuracy (hits out of 6) are filled in by the update job.
+        Logged Set A / Set B vs actual results when the draw has happened. Accuracy is hits out of 6 (five whites + bonus).
       </p>
     </header>
 
     <p class="disclaimer" role="note">
-      <strong>Disclaimer:</strong> For entertainment only. Accuracy counts matches vs the published result — it does not measure “closeness” to a random process.
+      <strong>Disclaimer:</strong> For entertainment only.
     </p>
 
     <section class="history-section" aria-labelledby="ph-heading">
       <h2 id="ph-heading" class="history-heading">Logged predictions</h2>
       <p id="ph-status" class="status" aria-live="polite">Loading…</p>
-      <div class="table-wrap table-wrap--wide">
-        <table class="draws draws--history">
-          <caption>Rows from <code>data/prediction_history.csv</code></caption>
-          <thead>
-            <tr>
-              <th scope="col">Game</th>
-              <th scope="col">Target date</th>
-              <th scope="col">Logged (UTC)</th>
-              <th scope="col">Set A</th>
-              <th scope="col">Set B</th>
-              <th scope="col">Actual</th>
-              <th scope="col">Acc A</th>
-              <th scope="col">Acc B</th>
-            </tr>
-          </thead>
-          <tbody id="ph-body"></tbody>
-        </table>
-      </div>
+      <div id="ph-list" class="history-cards" role="list"></div>
     </section>
 
     <footer class="site-footer">
-      Source file: <code>data/prediction_history.csv</code> (updated with GitHub Actions). <a href="index.html">Back to draws &amp; picks</a>.
+      Source: <code>data/prediction_history.csv</code>. <a href="index.html">Back to draws &amp; picks</a>.
     </footer>
   </main>
   <script type="module" src="js/predictionsPage.js"></script>

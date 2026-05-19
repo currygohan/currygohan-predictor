@@ -1,5 +1,7 @@
 import { parseCsv } from "./csv.js";
 import { summarizeActiveAnalyzersForUi } from "./analysis/config.js";
+import { nextDrawCalendarDateIsoAfter } from "./analysis/schedule.js";
+import { DOW_SHORT, parseLocalNoon } from "./analysis/weekday.js";
 import { suggestSets } from "./analysis/stub.js";
 
 const RECENT_COUNT = 25;
@@ -51,6 +53,32 @@ function sortByDateDesc(rows) {
   return [...rows].sort((a, b) => (a.draw_date < b.draw_date ? 1 : a.draw_date > b.draw_date ? -1 : 0));
 }
 
+function maxDrawDate(rows) {
+  if (!rows.length) return "";
+  return sortByDateDesc(rows)[0].draw_date;
+}
+
+/**
+ * @param {string} iso YYYY-MM-DD
+ */
+function formatDrawDateLong(iso) {
+  const d = parseLocalNoon(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const dow = DOW_SHORT[d.getDay()];
+  const opts = { month: "short", day: "numeric", year: "numeric" };
+  return `${dow}, ${d.toLocaleDateString(undefined, opts)}`;
+}
+
+/**
+ * @param {"mega_millions"|"powerball"} gameId
+ * @param {{ draw_date: string }[]} rows
+ */
+function nextTargetDrawDate(gameId, rows) {
+  const last = maxDrawDate(rows);
+  if (!last) return "";
+  return nextDrawCalendarDateIsoAfter(last, gameId);
+}
+
 function formatTicket(whites, bonus) {
   const w = [...whites].sort((a, b) => a - b);
   return `${w.join(" · ")} + ${bonus}`;
@@ -99,24 +127,19 @@ function renderTable(game, rows) {
 function renderPicks(game, rows) {
   game.picksEl.replaceChildren();
   const suggestion = suggestSets(game.id, rows);
+  const targetIso = nextTargetDrawDate(game.id, rows);
 
-  const block = document.createElement("div");
-  block.className = "generated-block";
-  const title = document.createElement("h3");
-  title.className = "generated-title";
-  title.textContent = "Generated lines";
-  const mix = document.createElement("p");
-  mix.className = "analyzer-summary";
-  mix.textContent = summarizeActiveAnalyzersForUi();
-  block.append(title, mix);
-  game.picksEl.appendChild(block);
-
-  if (suggestion?.caption) {
-    const note = document.createElement("p");
-    note.className = "pick-note";
-    note.textContent = suggestion.caption;
-    game.picksEl.appendChild(note);
+  const targetBanner = document.createElement("p");
+  targetBanner.className = "next-draw";
+  if (targetIso) {
+    targetBanner.innerHTML = `<span class="next-draw__label">For drawing</span> <strong class="next-draw__date">${formatDrawDateLong(targetIso)}</strong> <span class="next-draw__iso">(${targetIso})</span>`;
+  } else {
+    targetBanner.textContent = "Next draw date unavailable (need draw history).";
   }
+  game.picksEl.appendChild(targetBanner);
+
+  const cards = document.createElement("div");
+  cards.className = "pick-cards";
 
   for (const label of ["Set A", "Set B"]) {
     const card = document.createElement("div");
@@ -156,8 +179,26 @@ function renderPicks(game, rows) {
       card.append(h3, body, copy);
     }
 
-    game.picksEl.appendChild(card);
+    cards.appendChild(card);
   }
+
+  game.picksEl.appendChild(cards);
+
+  const detailsToggle = document.createElement("details");
+  detailsToggle.className = "model-details";
+  const sum = document.createElement("summary");
+  sum.textContent = "How these lines were scored";
+  const mix = document.createElement("p");
+  mix.className = "analyzer-summary";
+  mix.textContent = summarizeActiveAnalyzersForUi();
+  detailsToggle.append(sum, mix);
+  if (suggestion?.caption) {
+    const note = document.createElement("p");
+    note.className = "pick-note";
+    note.textContent = suggestion.caption;
+    detailsToggle.appendChild(note);
+  }
+  game.picksEl.appendChild(detailsToggle);
 }
 
 async function loadGameCsv(game) {
@@ -174,7 +215,7 @@ async function loadGameCsv(game) {
   }
 
   if (!res.ok) {
-    game.statusEl.textContent = `HTTP ${res.status} for ${game.csvPath}.`;
+    game.statusEl.textContent = `HTTP ${res.status} for ${game.csvPath}`;
     game.statusEl.classList.add("error");
     throw new Error(String(res.status));
   }
@@ -195,7 +236,9 @@ async function loadGameCsv(game) {
     if (n) parsed.push(n);
   }
 
-  game.statusEl.textContent = `${parsed.length} draws loaded (showing latest ${Math.min(RECENT_COUNT, parsed.length)}).`;
+  const target = nextTargetDrawDate(game.id, parsed);
+  const targetNote = target ? ` · picks target ${target}` : "";
+  game.statusEl.textContent = `${parsed.length} draws in file · showing latest ${Math.min(RECENT_COUNT, parsed.length)}${targetNote}`;
   return parsed;
 }
 
@@ -203,11 +246,11 @@ async function main() {
   for (const game of games) {
     try {
       const rows = await loadGameCsv(game);
-      renderTable(game, rows);
       renderPicks(game, rows);
+      renderTable(game, rows);
     } catch {
-      renderTable(game, []);
       renderPicks(game, []);
+      renderTable(game, []);
     }
   }
 }

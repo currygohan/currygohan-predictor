@@ -1,4 +1,5 @@
 import { parseCsv } from "./csv.js";
+import { DOW_SHORT, parseLocalNoon } from "./analysis/weekday.js";
 
 const CSV_PATH = "data/prediction_history.csv";
 
@@ -32,8 +33,20 @@ function formatActual(r) {
     .map((x) => String(x ?? "").trim())
     .filter(Boolean);
   const b = String(r.actual_bonus ?? "").trim();
-  if (nums.length !== 5 || !b) return "—";
+  if (nums.length !== 5 || !b) return null;
   return `${nums.join(", ")} + ${b}`;
+}
+
+/**
+ * @param {string} iso
+ */
+function formatTargetDate(iso) {
+  const s = String(iso ?? "").trim();
+  if (!s) return "—";
+  const d = parseLocalNoon(s);
+  if (Number.isNaN(d.getTime())) return s;
+  const dow = DOW_SHORT[d.getDay()];
+  return `${dow}, ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
 /**
@@ -59,9 +72,74 @@ function shortIso(iso) {
   return s.slice(0, 19).replace("T", " ");
 }
 
+/**
+ * @param {string} label
+ * @param {string} value
+ */
+function row(label, value) {
+  const wrap = document.createElement("div");
+  wrap.className = "history-card__row";
+  const lab = document.createElement("span");
+  lab.className = "history-card__label";
+  lab.textContent = label;
+  const val = document.createElement("span");
+  val.className = "history-card__value nums";
+  val.textContent = value;
+  wrap.append(lab, val);
+  return wrap;
+}
+
+/**
+ * @param {Record<string, string>} r
+ */
+function renderCard(r) {
+  const card = document.createElement("article");
+  card.className = "history-card";
+  card.setAttribute("role", "listitem");
+
+  const game = String(r.game ?? "");
+  const target = String(r.target_draw_date ?? "");
+  const actual = formatActual(r);
+  const pending = !actual;
+
+  const head = document.createElement("header");
+  head.className = "history-card__head";
+  const title = document.createElement("h3");
+  title.className = "history-card__title";
+  title.textContent = gameLabel(game);
+  const badge = document.createElement("span");
+  badge.className = pending ? "history-card__badge history-card__badge--pending" : "history-card__badge history-card__badge--done";
+  badge.textContent = pending ? "Awaiting draw" : "Scored";
+  head.append(title, badge);
+  card.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "history-card__body";
+  body.append(
+    row("Target draw", `${formatTargetDate(target)} (${target})`),
+    row("Logged (UTC)", shortIso(r.predicted_at_utc)),
+    row("Set A", formatTicketLine(r, "set_a")),
+    row("Set B", formatTicketLine(r, "set_b")),
+  );
+
+  if (actual) {
+    body.append(row("Actual", actual));
+    const accA = String(r.accuracy_set_a_pct ?? "").trim();
+    const accB = String(r.accuracy_set_b_pct ?? "").trim();
+    const accLine =
+      accA !== "" || accB !== ""
+        ? `Set A ${accA !== "" ? `${accA}%` : "—"} (${r.white_hits_a ?? 0} whites, bonus ${r.bonus_hit_a === "1" ? "yes" : "no"}) · Set B ${accB !== "" ? `${accB}%` : "—"} (${r.white_hits_b ?? 0} whites, bonus ${r.bonus_hit_b === "1" ? "yes" : "no"})`
+        : "—";
+    body.append(row("Accuracy", accLine));
+  }
+
+  card.appendChild(body);
+  return card;
+}
+
 async function main() {
   const statusEl = document.getElementById("ph-status");
-  const tbody = document.getElementById("ph-body");
+  const listEl = document.getElementById("ph-list");
 
   let res;
   try {
@@ -87,38 +165,11 @@ async function main() {
   }
 
   const rows = sortRows(raw);
-  statusEl.textContent = `${rows.length} row(s). Newest target draw first.`;
-  tbody.replaceChildren();
+  statusEl.textContent = `${rows.length} logged prediction(s). Newest first.`;
+  listEl.replaceChildren();
 
   for (const r of rows) {
-    const tr = document.createElement("tr");
-    const tdGame = document.createElement("td");
-    tdGame.textContent = gameLabel(String(r.game ?? ""));
-    const tdTarget = document.createElement("td");
-    tdTarget.className = "nums";
-    tdTarget.textContent = String(r.target_draw_date ?? "—");
-    const tdAt = document.createElement("td");
-    tdAt.className = "nums";
-    tdAt.textContent = shortIso(r.predicted_at_utc);
-    const tdA = document.createElement("td");
-    tdA.className = "nums";
-    tdA.textContent = formatTicketLine(r, "set_a");
-    const tdB = document.createElement("td");
-    tdB.className = "nums";
-    tdB.textContent = formatTicketLine(r, "set_b");
-    const tdAct = document.createElement("td");
-    tdAct.className = "nums";
-    tdAct.textContent = formatActual(r);
-    const tdAccA = document.createElement("td");
-    tdAccA.className = "nums";
-    tdAccA.textContent =
-      String(r.accuracy_set_a_pct ?? "").trim() !== "" ? `${r.accuracy_set_a_pct}%` : "—";
-    const tdAccB = document.createElement("td");
-    tdAccB.className = "nums";
-    tdAccB.textContent =
-      String(r.accuracy_set_b_pct ?? "").trim() !== "" ? `${r.accuracy_set_b_pct}%` : "—";
-    tr.append(tdGame, tdTarget, tdAt, tdA, tdB, tdAct, tdAccA, tdAccB);
-    tbody.appendChild(tr);
+    listEl.appendChild(renderCard(r));
   }
 }
 
